@@ -7,6 +7,10 @@
 
 import SwiftUI
 
+private func uiListLog(_ message: String) {
+    print("[ExyteChat/UIList] \(message)")
+}
+
 public extension Notification.Name {
     static let onScrollToBottom = Notification.Name("onScrollToBottom")
 }
@@ -50,6 +54,14 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
     @State var isScrolledToTop = false
     @State var updateQueue = UpdateQueue()
 
+    private func latestRowID(in sections: [MessagesSection]) -> String {
+        sections.first?.rows.first?.id ?? "none"
+    }
+
+    private func tableStateSummary(_ tableView: UITableView) -> String {
+        "offset=\(String(format: "%.1f", tableView.contentOffset.y)) insetTop=\(String(format: "%.1f", tableView.contentInset.top)) contentHeight=\(String(format: "%.1f", tableView.contentSize.height)) frameHeight=\(String(format: "%.1f", tableView.frame.height)) sections=\(tableView.numberOfSections) rows0=\(tableView.numberOfSections > 0 ? tableView.numberOfRows(inSection: 0) : 0)"
+    }
+
     func makeUIView(context: Context) -> UITableView {
         let tableView = UITableView(frame: .zero, style: .grouped)
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -67,10 +79,12 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         tableView.isScrollEnabled = isScrollEnabled
         tableView.keyboardDismissMode = keyboardDismissMode
         updateInsets(for: tableView)
+        uiListLog("makeUIView type=\(String(describing: type)) overlayHeight=\(String(format: "%.1f", bottomOverlayHeight)) \(tableStateSummary(tableView))")
 
         NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
             DispatchQueue.main.async {
                 if !context.coordinator.sections.isEmpty {
+                    uiListLog("received onScrollToBottom notification latestRowID=\(latestRowID(in: context.coordinator.sections)) \(tableStateSummary(tableView))")
                     scrollToBottom(tableView, animated: true)
                 }
             }
@@ -86,11 +100,48 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
     }
 
     private func scrollToBottom(_ tableView: UITableView, animated: Bool) {
-        guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else { return }
+        guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else {
+            uiListLog("scrollToBottom skipped animated=\(animated) because table is empty \(tableStateSummary(tableView))")
+            return
+        }
 
         let scrollPosition: UITableView.ScrollPosition = (type == .conversation) ? .top : .bottom
         tableView.layoutIfNeeded()
+        uiListLog("scrollToBottom animated=\(animated) position=\(String(describing: scrollPosition)) topRowID=\(sections.first?.rows.first?.id ?? "none") \(tableStateSummary(tableView))")
         tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: scrollPosition, animated: animated)
+    }
+
+    private func isPinnedToBottom(_ tableView: UITableView) -> Bool {
+        guard type == .conversation else { return false }
+        return tableView.contentOffset.y <= 1
+    }
+
+    private func canAdjustBottomAnchor(_ tableView: UITableView) -> Bool {
+        !tableView.isDragging && !tableView.isTracking && !tableView.isDecelerating
+    }
+
+    private func maintainBottomAnchorIfNeeded(_ tableView: UITableView, wasPinnedToBottom: Bool) {
+        guard wasPinnedToBottom else {
+            uiListLog("maintainBottomAnchor skipped wasPinnedToBottom=false \(tableStateSummary(tableView))")
+            return
+        }
+        guard canAdjustBottomAnchor(tableView) else {
+            uiListLog("maintainBottomAnchor deferred due to interaction dragging=\(tableView.isDragging) tracking=\(tableView.isTracking) decelerating=\(tableView.isDecelerating) \(tableStateSummary(tableView))")
+            return
+        }
+
+        uiListLog("maintainBottomAnchor immediate \(tableStateSummary(tableView))")
+        scrollToBottom(tableView, animated: false)
+
+        DispatchQueue.main.async { [weak tableView] in
+            guard let tableView else { return }
+            guard self.canAdjustBottomAnchor(tableView) else {
+                uiListLog("maintainBottomAnchor follow-up skipped due to interaction dragging=\(tableView.isDragging) tracking=\(tableView.isTracking) decelerating=\(tableView.isDecelerating) \(tableStateSummary(tableView))")
+                return
+            }
+            uiListLog("maintainBottomAnchor follow-up \(tableStateSummary(tableView))")
+            self.scrollToBottom(tableView, animated: false)
+        }
     }
 
     private func updateInsets(for tableView: UITableView) {
@@ -106,14 +157,15 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
 
         guard tableView.contentInset != insets || tableView.scrollIndicatorInsets != insets else { return }
 
-        let shouldMaintainLiveEdge = type == .conversation && isScrolledToBottom
+        let shouldMaintainLiveEdge = isPinnedToBottom(tableView)
+        uiListLog("updateInsets overlayHeight=\(String(format: "%.1f", overlayHeight)) oldInsetTop=\(String(format: "%.1f", tableView.contentInset.top)) newInsetTop=\(String(format: "%.1f", insets.top)) shouldMaintainLiveEdge=\(shouldMaintainLiveEdge) \(tableStateSummary(tableView))")
 
         tableView.contentInset = insets
         tableView.scrollIndicatorInsets = insets
 
         if shouldMaintainLiveEdge {
             if tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 {
-                scrollToBottom(tableView, animated: false)
+                maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: true)
             } else {
                 tableView.setContentOffset(
                     CGPoint(x: tableView.contentOffset.x, y: -insets.top),
@@ -136,6 +188,9 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             return
         }
 
+        context.coordinator.pendingSections = sections
+        uiListLog("updateUIView sectionsChanged oldCount=\(context.coordinator.sections.reduce(0) { $0 + $1.rows.count }) newCount=\(sections.reduce(0) { $0 + $1.rows.count }) oldLatest=\(latestRowID(in: context.coordinator.sections)) newLatest=\(latestRowID(in: sections)) isScrolledToBottomBinding=\(isScrolledToBottom) \(tableStateSummary(tableView))")
+
         Task {
             await updateQueue.enqueue() {
                 await updateIfNeeded(coordinator: context.coordinator, tableView: tableView)
@@ -145,16 +200,20 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
 
     @MainActor
     private func updateIfNeeded(coordinator: Coordinator, tableView: UITableView) async {
-        if coordinator.sections == sections {
+        let targetSections = coordinator.pendingSections
+
+        if coordinator.sections == targetSections {
             return
         }
 
+        let shouldMaintainBottomAnchor = isPinnedToBottom(tableView)
+        uiListLog("updateIfNeeded shouldMaintainBottomAnchor=\(shouldMaintainBottomAnchor) oldLatest=\(latestRowID(in: coordinator.sections)) newLatest=\(latestRowID(in: targetSections)) \(tableStateSummary(tableView))")
+
         if coordinator.sections.isEmpty {
-            coordinator.sections = sections
+            coordinator.sections = targetSections
             tableView.reloadData()
-            if type == .conversation, isScrolledToBottom {
-                scrollToBottom(tableView, animated: false)
-            }
+            uiListLog("updateIfNeeded initial reload latest=\(latestRowID(in: targetSections)) \(tableStateSummary(tableView))")
+            maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: shouldMaintainBottomAnchor)
             if !isScrollEnabled {
                 DispatchQueue.main.async {
                     tableContentHeight = tableView.contentSize.height
@@ -163,15 +222,21 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             return
         }
 
-        if let lastSection = sections.last {
-            coordinator.paginationTargetIndexPath = IndexPath(row: lastSection.rows.count - 1, section: sections.count - 1)
+        if let lastSection = targetSections.last {
+            coordinator.paginationTargetIndexPath = IndexPath(row: lastSection.rows.count - 1, section: targetSections.count - 1)
         }
 
         let prevSections = coordinator.sections
         //print("0 whole sections:", runID, "\n")
         //print("whole previous:\n", formatSections(prevSections), "\n")
-        let splitInfo = await performSplitInBackground(prevSections, sections)
-        await applyUpdatesToTable(tableView, splitInfo: splitInfo) {
+        let splitInfo = await performSplitInBackground(prevSections, targetSections)
+        uiListLog("splitInfo deleteSections=\(splitInfo.deleteOperations.count) swaps=\(splitInfo.swapOperations.count) edits=\(splitInfo.editOperations.count) inserts=\(splitInfo.insertOperations.count) oldLatest=\(latestRowID(in: prevSections)) newLatest=\(latestRowID(in: targetSections))")
+        await applyUpdatesToTable(
+            tableView,
+            splitInfo: splitInfo,
+            shouldMaintainBottomAnchor: shouldMaintainBottomAnchor,
+            targetSections: targetSections
+        ) {
             coordinator.sections = $0
         }
     }
@@ -186,7 +251,14 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
     }
 
     @MainActor
-    private func applyUpdatesToTable(_ tableView: UITableView, splitInfo: SplitInfo, updateContextClosure: ([MessagesSection])->()) async {
+    private func applyUpdatesToTable(
+        _ tableView: UITableView,
+        splitInfo: SplitInfo,
+        shouldMaintainBottomAnchor: Bool,
+        targetSections: [MessagesSection],
+        updateContextClosure: ([MessagesSection])->()
+    ) async {
+        uiListLog("applyUpdatesToTable begin shouldMaintainBottomAnchor=\(shouldMaintainBottomAnchor) deleteOps=\(splitInfo.deleteOperations.count) swapOps=\(splitInfo.swapOperations.count) editOps=\(splitInfo.editOperations.count) insertOps=\(splitInfo.insertOperations.count) \(tableStateSummary(tableView))")
         // step 0: preparation
         // prepare intermediate sections and operations
         //print("whole appliedDeletes:\n", formatSections(splitInfo.appliedDeletes), "\n")
@@ -240,7 +312,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             // step 4: inserts
             // apply the rest of the changes to table's dataSource, i.e. inserts
             //print("4 apply inserts", runID)
-            updateContextClosure(sections)
+            updateContextClosure(targetSections)
 
             tableView.beginUpdates()
             for operation in splitInfo.insertOperations {
@@ -254,9 +326,8 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             }
         }
 
-        if type == .conversation && isScrolledToBottom {
-            scrollToBottom(tableView, animated: false)
-        }
+        maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: shouldMaintainBottomAnchor)
+        uiListLog("applyUpdatesToTable end \(tableStateSummary(tableView))")
     }
 
     // MARK: - Operations
@@ -456,6 +527,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
                 }
             }
         }
+        var pendingSections: [MessagesSection]
         let ids: [String]
         let mainBackgroundColor: Color
         let listSwipeActions: ListSwipeActions
@@ -495,6 +567,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             self.messageLinkPreviewLimit = messageLinkPreviewLimit
             self.messageFont = messageFont
             self.sections = sections
+            self.pendingSections = sections
             self.ids = ids
             self.mainBackgroundColor = mainBackgroundColor
             self.paginationTargetIndexPath = paginationTargetIndexPath
@@ -663,6 +736,9 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             isScrolledToBottom = scrollView.contentOffset.y <= 0
             isScrolledToTop = scrollView.contentOffset.y >= scrollView.contentSize.height - scrollView.frame.height - 1
+            if type == .conversation {
+                uiListLog("scrollViewDidScroll offset=\(String(format: "%.1f", scrollView.contentOffset.y)) contentHeight=\(String(format: "%.1f", scrollView.contentSize.height)) frameHeight=\(String(format: "%.1f", scrollView.frame.height)) isScrolledToBottom=\(isScrolledToBottom) isScrolledToTop=\(isScrolledToTop) dragging=\(scrollView.isDragging) decelerating=\(scrollView.isDecelerating)")
+            }
         }
     }
 
@@ -699,14 +775,22 @@ extension UIList {
 
 actor UpdateQueue {
     private var isProcessing = false
+    private var pendingWork: (@Sendable () async -> Void)?
 
     func enqueue(_ work: @escaping @Sendable () async -> Void) async {
-        while isProcessing {
-            await Task.yield() // Wait for previous task to finish
+        pendingWork = work
+
+        guard !isProcessing else {
+            uiListLog("UpdateQueue coalesced pending work")
+            return
         }
 
         isProcessing = true
-        await work()
-        isProcessing = false
+        defer { isProcessing = false }
+
+        while let nextWork = pendingWork {
+            pendingWork = nil
+            await nextWork()
+        }
     }
 }
