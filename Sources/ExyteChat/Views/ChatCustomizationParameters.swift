@@ -51,6 +51,7 @@ struct InputViewCustomizationParameters {
     var availableInputs: [AvailableInputType] = [.text, .audio, .media]
     var recorderSettings = RecorderSettings()
     var mediaPickerParameters = MediaPickerParameters()
+    var appliesFocusModifierToCustomInputView = true
 }
 
 public typealias MediaPickerParameters = ExyteMediaPicker.MediaPickerCutomizationParameters
