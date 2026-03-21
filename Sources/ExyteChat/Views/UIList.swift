@@ -24,26 +24,18 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     @Binding var shouldScrollToTop: () -> ()
     @Binding var tableContentHeight: CGFloat
 
-    // MARK: - View builders
-
     let messageBuilder: MessageBuilderParamsClosure
     let mainHeaderBuilder: (()->AnyView)?
     let headerBuilder: ((Date)->AnyView)?
-
-    // MARK: - Data / type
 
     let type: ChatType
     let bottomOverlayHeight: CGFloat
     let sections: [MessagesSection]
     let ids: [String]
 
-    // MARK: - Customization
-
     let chatParams: ChatCustomizationParameters
     let messageParams: MessageCustomizationParameters
     @Binding var timeViewWidth: CGFloat
-
-    // MARK: - State
 
     @State private var isScrolledToTop = false
     @State private var updateQueue = UpdateQueue()
@@ -377,12 +369,9 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
     }
 
-    // MARK: - Operations
-
     enum Operation {
         case deleteSection(Int)
         case insertSection(Int)
-
         case delete(Int, Int)
         case insert(Int, Int)
         case swap(Int, Int, Int)
@@ -547,23 +536,18 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }.count > 0
     }
 
-    // MARK: - Coordinator
-
     func makeCoordinator() -> Coordinator {
         Coordinator(
             viewModel: viewModel,
             inputViewModel: inputViewModel,
             isScrolledToBottom: $isScrolledToBottom,
             isScrolledToTop: $isScrolledToTop,
-
             messageBuilder: messageBuilder,
             mainHeaderBuilder: mainHeaderBuilder,
             headerBuilder: headerBuilder,
-
             type: type,
             sections: sections,
             ids: ids,
-
             chatParams: chatParams,
             messageParams: messageParams,
             timeViewWidth: $timeViewWidth,
@@ -572,17 +556,13 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     }
 
     class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
-
         @ObservedObject var viewModel: ChatViewModel
         @ObservedObject var inputViewModel: InputViewModel
-
         @Binding var isScrolledToBottom: Bool
         @Binding var isScrolledToTop: Bool
-
         let messageBuilder: MessageBuilderParamsClosure
         let mainHeaderBuilder: (()->AnyView)?
         let headerBuilder: ((Date)->AnyView)?
-
         let type: ChatType
         var sections: [MessagesSection] {
             didSet {
@@ -593,14 +573,11 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
         var pendingSections: [MessagesSection]
         let ids: [String]
-
         let chatParams: ChatCustomizationParameters
         let messageParams: MessageCustomizationParameters
         @Binding var timeViewWidth: CGFloat
         let mainBackgroundColor: Color
-
         var paginationTargetIndexPath: IndexPath?
-
         private let impactGenerator = UIImpactFeedbackGenerator(style: .heavy)
 
         init(
@@ -636,46 +613,23 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             self.mainBackgroundColor = mainBackgroundColor
         }
 
-        func numberOfSections(in tableView: UITableView) -> Int {
-            sections.count
-        }
-
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            sections[section].rows.count
-        }
-
-        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            if type == .comments {
-                return sectionHeaderView(section)
-            }
-            return nil
-        }
-
-        func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
-            if type == .conversation {
-                return sectionHeaderView(section)
-            }
-            return nil
-        }
+        func numberOfSections(in tableView: UITableView) -> Int { sections.count }
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { sections[section].rows.count }
+        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? { type == .comments ? sectionHeaderView(section) : nil }
+        func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? { type == .conversation ? sectionHeaderView(section) : nil }
 
         func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) {
-                return 0
-            }
+            if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) { return 0 }
             return type == .conversation ? 0.1 : UITableView.automaticDimension
         }
 
         func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-            if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) {
-                return 0
-            }
+            if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) { return 0 }
             return type == .conversation ? UITableView.automaticDimension : 0.1
         }
 
         func sectionHeaderView(_ section: Int) -> UIView? {
-            if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) {
-                return nil
-            }
+            if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) { return nil }
 
             let header = UIHostingController(rootView:
                 sectionHeaderViewBuilder(section)
@@ -731,13 +685,11 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 .background(MessageMenuPreferenceViewSetter(id: row.id))
                 .rotationEffect(Angle(degrees: (type == .conversation ? 180 : 0)))
                 .applyIf(chatParams.showMessageMenuOnLongPress) {
-                    $0.simultaneousGesture(
-                        TapGesture().onEnded { }
-                    )
-                    .onLongPressGesture {
-                        self.impactGenerator.impactOccurred()
-                        self.viewModel.messageMenuRow = row
-                    }
+                    $0.simultaneousGesture(TapGesture().onEnded { })
+                        .onLongPressGesture {
+                            self.impactGenerator.impactOccurred()
+                            self.viewModel.messageMenuRow = row
+                        }
                 }
             }
             .minSize(width: 0, height: 0)
@@ -751,10 +703,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 onWillDisplayCell(sections[indexPath.section].rows[indexPath.row].message)
             }
 
-            guard let paginationHandler = chatParams.paginationHandler, let paginationTargetIndexPath, indexPath == paginationTargetIndexPath else {
-                return
-            }
-
+            guard let paginationHandler = chatParams.paginationHandler, let paginationTargetIndexPath, indexPath == paginationTargetIndexPath else { return }
             paginationHandler.handleClosure()
         }
 
@@ -793,25 +742,6 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             isScrolledToTop = scrollView.contentOffset.y >= scrollView.contentSize.height - scrollView.frame.height - 1
         }
     }
-
-    func formatRow(_ row: MessageRow) -> String {
-        String(
-            "id: \(row.id) text: \(String(row.message.attributedText.characters)) status: \(row.message.status ?? .none) date: \(row.message.createdAt) position in user group: \(row.positionInUserGroup) position in messages section: \(row.positionInMessagesSection) trigger: \(row.message.triggerRedraw)"
-        )
-    }
-
-    func formatSections(_ sections: [MessagesSection]) -> String {
-        var res = "(\(sections.count))(\(sections.map{$0.rows.count})){\n"
-        for section in sections.reversed() {
-            res += String("\t{\n")
-            for row in section.rows {
-                res += String("\t\t\(formatRow(row))\n")
-            }
-            res += String("\t}\n")
-        }
-        res += String("}")
-        return res
-    }
 }
 
 extension UIList {
@@ -843,7 +773,6 @@ actor UpdateQueue {
 
     func finishIfNeeded() {
         guard let continuation = pendingContinuation else { return }
-
         if didPerformRealUpdate == false {
             pendingContinuation = nil
             continuation.resume()
@@ -852,14 +781,12 @@ actor UpdateQueue {
 
     func finishBecauseRealUpdateHappened() {
         guard let continuation = pendingContinuation else { return }
-
         pendingContinuation = nil
         continuation.resume()
     }
 
     func enqueue(_ work: @escaping @Sendable () async -> Void) async {
         pendingWork = work
-
         guard !isProcessing else { return }
 
         isProcessing = true
