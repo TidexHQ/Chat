@@ -132,6 +132,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     var recorderSettings: RecorderSettings = RecorderSettings()
     var listSwipeActions: ListSwipeActions = ListSwipeActions()
     var keyboardDismissMode: UIScrollView.KeyboardDismissMode = .none
+    var appliesFocusModifierToCustomInputView = true
     
     @StateObject private var viewModel = ChatViewModel()
     @StateObject private var inputViewModel = InputViewModel()
@@ -147,6 +148,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
 
     @State private var tableContentHeight: CGFloat = 0
     @State private var inputViewSize = CGSize.zero
+    @State private var bottomChromeSize = CGSize.zero
     @State private var cellFrames = [String: CGRect]()
 
     @State private var giphyConfigured = false
@@ -262,11 +264,10 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
             
             if isListAboveInputView {
-                listWithButton
-                if let builder = betweenListAndInputViewBuilder {
-                    builder()
+                ZStack(alignment: .bottom) {
+                    listWithButton
+                    bottomChrome
                 }
-                inputView
             } else {
                 inputView
                 if let builder = betweenListAndInputViewBuilder {
@@ -316,7 +317,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                             .shadow(color: .primary.opacity(0.1), radius: 2, y: 1)
                     }
                     .padding(.trailing, MessageView.horizontalScreenEdgePadding)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, bottomChromeSize.height + 8)
                 }
             }
             
@@ -338,6 +339,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             headerBuilder: headerBuilder,
             inputView: inputView,
             type: type,
+            bottomOverlayHeight: isListAboveInputView ? bottomChromeSize.height : 0,
             showDateHeaders: showDateHeaders,
             isScrollEnabled: isScrollEnabled,
             avatarSize: avatarSize,
@@ -400,10 +402,16 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     var inputView: some View {
         Group {
             if let inputViewBuilder = inputViewBuilder {
-                inputViewBuilder($inputViewModel.text, inputViewModel.attachments, inputViewModel.state, .message, inputViewModel.inputViewAction()) {
+                let customInputView = inputViewBuilder($inputViewModel.text, inputViewModel.attachments, inputViewModel.state, .message, inputViewModel.inputViewAction()) {
                     globalFocusState.focus = nil
                 }
-                .customFocus($globalFocusState.focus, equals: .uuid(viewModel.inputFieldId))
+
+                if appliesFocusModifierToCustomInputView {
+                    customInputView
+                        .customFocus($globalFocusState.focus, equals: .uuid(viewModel.inputFieldId))
+                } else {
+                    customInputView
+                }
             } else {
                 InputView(
                     viewModel: inputViewModel,
@@ -420,6 +428,17 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         .environmentObject(globalFocusState)
         .onAppear(perform: inputViewModel.onStart)
         .onDisappear(perform: inputViewModel.onStop)
+    }
+
+    @ViewBuilder
+    var bottomChrome: some View {
+        VStack(spacing: 0) {
+            if let builder = betweenListAndInputViewBuilder {
+                builder()
+            }
+            inputView
+        }
+        .sizeGetter($bottomChromeSize)
     }
     
     func messageMenu(_ row: MessageRow) -> some View {
@@ -613,6 +632,14 @@ public extension ChatView {
     func keyboardDismissMode(_ mode: UIScrollView.KeyboardDismissMode) -> ChatView {
         var view = self
         view.keyboardDismissMode = mode
+        return view
+    }
+
+    /// Controls whether a custom input view builder participates in ExyteChat's focus sync.
+    /// Disable this when the custom input view manages its own focus lifecycle.
+    func appliesFocusModifierToCustomInputView(_ enabled: Bool) -> ChatView {
+        var view = self
+        view.appliesFocusModifierToCustomInputView = enabled
         return view
     }
     

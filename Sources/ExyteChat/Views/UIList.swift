@@ -30,6 +30,7 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
     var inputView: InputView
 
     let type: ChatType
+    let bottomOverlayHeight: CGFloat
     let showDateHeaders: Bool
     let isScrollEnabled: Bool
     let avatarSize: CGFloat
@@ -65,12 +66,12 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         tableView.scrollsToTop = false
         tableView.isScrollEnabled = isScrollEnabled
         tableView.keyboardDismissMode = keyboardDismissMode
+        updateInsets(for: tableView)
 
         NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
             DispatchQueue.main.async {
                 if !context.coordinator.sections.isEmpty {
-                    guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else { return }
-                    tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .bottom, animated: true)
+                    scrollToBottom(tableView, animated: true)
                 }
             }
         }
@@ -84,7 +85,47 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         return tableView
     }
 
+    private func scrollToBottom(_ tableView: UITableView, animated: Bool) {
+        guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else { return }
+
+        let scrollPosition: UITableView.ScrollPosition = (type == .conversation) ? .top : .bottom
+        tableView.layoutIfNeeded()
+        tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: scrollPosition, animated: animated)
+    }
+
+    private func updateInsets(for tableView: UITableView) {
+        let overlayHeight = max(bottomOverlayHeight, 0)
+        let insets: UIEdgeInsets
+
+        switch type {
+        case .conversation:
+            insets = UIEdgeInsets(top: overlayHeight, left: 0, bottom: 0, right: 0)
+        case .comments:
+            insets = UIEdgeInsets(top: 0, left: 0, bottom: overlayHeight, right: 0)
+        }
+
+        guard tableView.contentInset != insets || tableView.scrollIndicatorInsets != insets else { return }
+
+        let shouldMaintainLiveEdge = type == .conversation && isScrolledToBottom
+
+        tableView.contentInset = insets
+        tableView.scrollIndicatorInsets = insets
+
+        if shouldMaintainLiveEdge {
+            if tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 {
+                scrollToBottom(tableView, animated: false)
+            } else {
+                tableView.setContentOffset(
+                    CGPoint(x: tableView.contentOffset.x, y: -insets.top),
+                    animated: false
+                )
+            }
+        }
+    }
+
     func updateUIView(_ tableView: UITableView, context: Context) {
+        updateInsets(for: tableView)
+
         if !isScrollEnabled {
             DispatchQueue.main.async {
                 tableContentHeight = tableView.contentSize.height
@@ -111,6 +152,9 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
         if coordinator.sections.isEmpty {
             coordinator.sections = sections
             tableView.reloadData()
+            if type == .conversation, isScrolledToBottom {
+                scrollToBottom(tableView, animated: false)
+            }
             if !isScrollEnabled {
                 DispatchQueue.main.async {
                     tableContentHeight = tableView.contentSize.height
@@ -208,6 +252,10 @@ struct UIList<MessageContent: View, InputView: View>: UIViewRepresentable {
             if !isScrollEnabled {
                 tableContentHeight = tableView.contentSize.height
             }
+        }
+
+        if type == .conversation && isScrolledToBottom {
+            scrollToBottom(tableView, animated: false)
         }
     }
 
