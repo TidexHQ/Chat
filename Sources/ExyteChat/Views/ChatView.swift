@@ -23,10 +23,10 @@ public enum ReplyMode: CaseIterable, Sendable {
 }
 
 public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction: MessageMenuAction>: View {
-    
+
     /// User and MessageId
     public typealias TapAvatarClosure = (User, String) -> ()
-    
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatTheme) private var theme
     @Environment(\.giphyConfig) private var giphyConfig
@@ -96,6 +96,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     @State private var tableContentHeight: CGFloat = 0
     @State private var inputViewSize = CGSize.zero
     @State private var timeViewSize = CGSize.zero
+    @State private var bottomChromeSize = CGSize.zero
     @State private var cellFrames = [String: CGRect]()
 
     @State private var giphyConfigured = false
@@ -117,7 +118,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                     }
                 }
             }
-            .onChange(of: inputViewModel.text) { _ , newValue in
+            .onChange(of: inputViewModel.text) { _, newValue in
                 inputViewCustomizationParameters.onInputTextChange?(newValue)
             }
             .onChange(of: inputViewCustomizationParameters.externalInputText) {
@@ -131,12 +132,12 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                     inputViewModel.send()
                 }
             }
-            .onChange(of: inputViewModel.showPicker) { _ , newValue in
+            .onChange(of: inputViewModel.showPicker) { _, newValue in
                 if newValue {
                     globalFocusState.focus = nil
                 }
             }
-            .onChange(of: inputViewModel.showGiphyPicker) { _ , newValue in
+            .onChange(of: inputViewModel.showGiphyPicker) { _, newValue in
                 if newValue {
                     globalFocusState.focus = nil
                 }
@@ -190,19 +191,18 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                 }
             }
     }
-    
+
     var mainView: some View {
         VStack(spacing: 0) {
             if chatCustomizationParameters.showNetworkConnectionProblem, !networkMonitor.isConnected {
                 waitingForNetwork
             }
-            
+
             if chatCustomizationParameters.isListAboveInputView {
-                listWithButton
-                if let builder = betweenListAndInputViewBuilder {
-                    builder()
+                ZStack(alignment: .bottom) {
+                    listWithButton
+                    bottomChrome
                 }
-                inputView
             } else {
                 inputView
                 if let builder = betweenListAndInputViewBuilder {
@@ -214,7 +214,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         // Used to prevent ChatView movement during Emoji Keyboard invocation
         .ignoresSafeArea(isShowingMenu ? .keyboard : [])
     }
-    
+
     var waitingForNetwork: some View {
         VStack {
             Rectangle()
@@ -233,7 +233,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         }
         .padding(.top, 8)
     }
-    
+
     @ViewBuilder
     var listWithButton: some View {
         switch type {
@@ -252,15 +252,15 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                             .shadow(color: .primary.opacity(0.1), radius: 2, y: 1)
                     }
                     .padding(.trailing, MessageView.horizontalScreenEdgePadding)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, bottomChromeSize.height + 8)
                 }
             }
-            
+
         case .comments:
             list
         }
     }
-    
+
     @ViewBuilder
     var list: some View {
         UIList(
@@ -282,6 +282,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             // MARK: - Data / type
 
             type: type,
+            bottomOverlayHeight: chatCustomizationParameters.isListAboveInputView ? bottomChromeSize.height : 0,
             sections: sections,
             ids: ids,
 
@@ -337,7 +338,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     }
 
     var inputView: some View {
-        ZStack {
+        Group {
             let customInputView = inputViewBuilder(
                 InputViewBuilderParameters(
                     text: $inputViewModel.text,
@@ -359,9 +360,11 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                     recorderSettings: inputViewCustomizationParameters.recorderSettings,
                     localization: chatCustomizationParameters.localization
                 )
-            } else {
+            } else if inputViewCustomizationParameters.appliesFocusModifierToCustomInputView {
                 customInputView
                     .customFocus($globalFocusState.focus, equals: .uuid(viewModel.inputFieldId))
+            } else {
+                customInputView
             }
         }
         .sizeGetter($inputViewSize)
@@ -369,7 +372,18 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         .onAppear(perform: inputViewModel.onStart)
         .onDisappear(perform: inputViewModel.onStop)
     }
-    
+
+    @ViewBuilder
+    var bottomChrome: some View {
+        VStack(spacing: 0) {
+            if let builder = betweenListAndInputViewBuilder {
+                builder()
+            }
+            inputView
+        }
+        .sizeGetter($bottomChromeSize)
+    }
+
     func messageMenu(_ row: MessageRow) -> some View {
         let cellFrame = cellFrames[row.id] ?? .zero
 
@@ -404,7 +418,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
         }
     }
-    
+
     /// Determines the message menu alignment based on ChatType and message sender.
     private func menuAlignment(_ message: Message, chatType: ChatType) -> MessageMenuAlignment {
         switch chatType {
@@ -414,7 +428,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             return .left
         }
     }
-    
+
     /// Our default reactionCallback flow if the user supports Reactions by implementing the didReactToMessage closure
     private func reactionClosure(_ message: Message) -> (ReactionType?) -> () {
         { reactionType in
@@ -438,13 +452,13 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     func showMessageMenu() {
         isShowingMenu = true
     }
-    
+
     func hideMessageMenu() {
         viewModel.messageMenuRow = nil
         viewModel.messageFrame = .zero
         isShowingMenu = false
     }
-    
+
     private func chatBackground() -> some View {
         Group {
             if let background = theme.images.background {
@@ -473,64 +487,64 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
         }
     }
-    
+
     private func isLandscape() -> Bool {
         UIDevice.current.orientation.isLandscape
     }
-    
+
     private func isGiphyAvailable() -> Bool {
         inputViewCustomizationParameters.availableInputs.contains(AvailableInputType.giphy)
     }
 }
 
-//#Preview {
-//    let romeo = User(id: "romeo", name: "Romeo Montague", avatarURL: nil, isCurrentUser: true)
-//    let juliet = User(id: "juliet", name: "Juliet Capulet", avatarURL: nil, isCurrentUser: false)
-//
-//    let monday = try! Date.iso8601Date.parse("2025-05-12")
-//    let tuesday = try! Date.iso8601Date.parse("2025-05-13")
-//
-//    ChatView(messages: [
-//        Message(
-//            id: "26tb", user: romeo, status: .read, createdAt: monday,
-//            text: "And I’ll still stay, to have thee still forget"),
-//        Message(
-//            id: "zee6", user: romeo, status: .read, createdAt: monday,
-//            text: "Forgetting any other home but this"),
-//
-//        Message(
-//            id: "oWUN", user: juliet, status: .read, createdAt: monday,
-//            text: "’Tis almost morning. I would have thee gone"),
-//        Message(
-//            id: "P261", user: juliet, status: .read, createdAt: monday,
-//            text: "And yet no farther than a wanton’s bird"),
-//        Message(
-//            id: "46hu", user: juliet, status: .read, createdAt: monday,
-//            text: "That lets it hop a little from his hand"),
-//        Message(
-//            id: "Gjbm", user: juliet, status: .read, createdAt: monday,
-//            text: "Like a poor prisoner in his twisted gyves"),
-//        Message(
-//            id: "IhRQ", user: juliet, status: .read, createdAt: monday,
-//            text: "And with a silken thread plucks it back again"),
-//        Message(
-//            id: "kwWd", user: juliet, status: .read, createdAt: monday,
-//            text: "So loving-jealous of his liberty"),
-//
-//        Message(
-//            id: "9481", user: romeo, status: .read, createdAt: tuesday,
-//            text: "I would I were thy bird"),
-//
-//        Message(
-//            id: "dzmY", user: juliet, status: .sent, createdAt: tuesday, text: "Sweet, so would I"),
-//        Message(
-//            id: "r5HH", user: juliet, status: .sent, createdAt: tuesday,
-//            text: "Yet I should kill thee with much cherishing"),
-//        Message(
-//            id: "quy1", user: juliet, status: .sent, createdAt: tuesday,
-//            text: "Good night, good night. Parting is such sweet sorrow"),
-//        Message(
-//            id: "Mwh6", user: juliet, status: .sent, createdAt: tuesday,
-//            text: "That I shall say 'Good night' till it be morrow"),
-//    ]) { draft in }
-//}
+#Preview {
+    let romeo = User(id: "romeo", name: "Romeo Montague", avatarURL: nil, isCurrentUser: true)
+    let juliet = User(id: "juliet", name: "Juliet Capulet", avatarURL: nil, isCurrentUser: false)
+
+    let monday = try! Date.iso8601Date.parse("2025-05-12")
+    let tuesday = try! Date.iso8601Date.parse("2025-05-13")
+
+    ChatView(messages: [
+        Message(
+            id: "26tb", user: romeo, status: .read, createdAt: monday,
+            text: "And I’ll still stay, to have thee still forget"),
+        Message(
+            id: "zee6", user: romeo, status: .read, createdAt: monday,
+            text: "Forgetting any other home but this"),
+
+        Message(
+            id: "oWUN", user: juliet, status: .read, createdAt: monday,
+            text: "’Tis almost morning. I would have thee gone"),
+        Message(
+            id: "P261", user: juliet, status: .read, createdAt: monday,
+            text: "And yet no farther than a wanton’s bird"),
+        Message(
+            id: "46hu", user: juliet, status: .read, createdAt: monday,
+            text: "That lets it hop a little from his hand"),
+        Message(
+            id: "Gjbm", user: juliet, status: .read, createdAt: monday,
+            text: "Like a poor prisoner in his twisted gyves"),
+        Message(
+            id: "IhRQ", user: juliet, status: .read, createdAt: monday,
+            text: "And with a silken thread plucks it back again"),
+        Message(
+            id: "kwWd", user: juliet, status: .read, createdAt: monday,
+            text: "So loving-jealous of his liberty"),
+
+        Message(
+            id: "9481", user: romeo, status: .read, createdAt: tuesday,
+            text: "I would I were thy bird"),
+
+        Message(
+            id: "dzmY", user: juliet, status: .sent, createdAt: tuesday, text: "Sweet, so would I"),
+        Message(
+            id: "r5HH", user: juliet, status: .sent, createdAt: tuesday,
+            text: "Yet I should kill thee with much cherishing"),
+        Message(
+            id: "quy1", user: juliet, status: .sent, createdAt: tuesday,
+            text: "Good night, good night. Parting is such sweet sorrow"),
+        Message(
+            id: "Mwh6", user: juliet, status: .sent, createdAt: tuesday,
+            text: "That I shall say 'Good night' till it be morrow"),
+    ]) { draft in }
+}

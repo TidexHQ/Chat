@@ -276,6 +276,14 @@ public extension ChatView {
         return view
     }
 
+    /// Controls whether a custom input view builder participates in ExyteChat's focus sync.
+    /// Disable this when the custom input view manages its own focus lifecycle.
+    func appliesFocusModifierToCustomInputView(_ enabled: Bool) -> ChatView {
+        var view = self
+        view.inputViewCustomizationParameters.appliesFocusModifierToCustomInputView = enabled
+        return view
+    }
+
     // MARK: - Media picker
 
     func setMediaPickerLiveCameraStyle(_ style: MediaPickerLiveCameraStyle) -> ChatView {
