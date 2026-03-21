@@ -9,6 +9,10 @@ import SwiftUI
 import GiphyUISDK
 import ExyteMediaPicker
 
+private func chatViewLog(_ message: String) {
+    print("[ExyteChat/ChatView] \(message)")
+}
+
 public typealias MediaPickerLiveCameraStyle = LiveCameraCellStyle
 public typealias MediaPickerSelectionParameters = SelectionParameters
 
@@ -314,9 +318,11 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         .simultaneousGesture(
             TapGesture().onEnded {
                 globalFocusState.focus = nil
+                keyboardState.resignFirstResponder()
             }
         )
         .onAppear {
+            chatViewLog("list onAppear type=\(String(describing: type)) messages=\(ids.count) latestID=\(ids.last ?? "none") bottomChromeHeight=\(String(format: "%.1f", bottomChromeSize.height))")
             viewModel.didSendMessage = didSendMessage
             viewModel.inputViewModel = inputViewModel
             viewModel.globalFocusState = globalFocusState
@@ -325,13 +331,9 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
 
             inputViewModel.didSendMessage = { value in
+                chatViewLog("didSendMessage draftID=\(value.id ?? "nil") textCount=\(value.text.count) medias=\(value.medias.count) hasReply=\(value.replyMessage != nil) createdAt=\(value.createdAt.timeIntervalSince1970)")
                 Task { @MainActor in
                     didSendMessage(value)
-                }
-                if type == .conversation {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        NotificationCenter.default.post(name: .onScrollToBottom, object: nil)
-                    }
                 }
             }
         }

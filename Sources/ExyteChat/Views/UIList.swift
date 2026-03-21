@@ -96,6 +96,27 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: scrollPosition, animated: animated)
     }
 
+    private func isPinnedToBottom(_ tableView: UITableView) -> Bool {
+        guard type == .conversation else { return false }
+        return tableView.contentOffset.y <= 1
+    }
+
+    private func canAdjustBottomAnchor(_ tableView: UITableView) -> Bool {
+        !tableView.isDragging && !tableView.isTracking && !tableView.isDecelerating
+    }
+
+    private func maintainBottomAnchorIfNeeded(_ tableView: UITableView, wasPinnedToBottom: Bool) {
+        guard wasPinnedToBottom else { return }
+        guard canAdjustBottomAnchor(tableView) else { return }
+        scrollToBottom(tableView, animated: false)
+
+        DispatchQueue.main.async { [weak tableView] in
+            guard let tableView else { return }
+            guard self.canAdjustBottomAnchor(tableView) else { return }
+            self.scrollToBottom(tableView, animated: false)
+        }
+    }
+
     private func resolvedContentInsets() -> UIEdgeInsets {
         var insets = chatParams.contentInsets
         let overlayHeight = max(bottomOverlayHeight, 0)
@@ -115,14 +136,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
         guard tableView.contentInset != insets || tableView.scrollIndicatorInsets != insets else { return }
 
-        let shouldMaintainLiveEdge = type == .conversation && isScrolledToBottom
+        let shouldMaintainLiveEdge = isPinnedToBottom(tableView)
 
         tableView.contentInset = insets
         tableView.scrollIndicatorInsets = insets
 
         if shouldMaintainLiveEdge {
             if tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 {
-                scrollToBottom(tableView, animated: false)
+                maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: true)
             } else {
                 tableView.setContentOffset(
                     CGPoint(x: tableView.contentOffset.x, y: -insets.top),
@@ -154,6 +175,8 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
         let needToScroll = chatParams.externalContentOffset != nil || chatParams.scrollToMessageID != nil
         let animateTableUpdate = transaction.animated && !needToScroll
+
+        context.coordinator.pendingSections = sections
 
         Task {
             await updateQueue.enqueue {
@@ -189,18 +212,20 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
     @MainActor
     private func updateIfNeeded(coordinator: Coordinator, tableView: UITableView, animated: Bool) async {
-        if coordinator.sections == sections {
+        let targetSections = coordinator.pendingSections
+
+        if coordinator.sections == targetSections {
             return
         }
 
+        let shouldMaintainBottomAnchor = isPinnedToBottom(tableView)
+
         if coordinator.sections.isEmpty {
-            coordinator.sections = sections
+            coordinator.sections = targetSections
 
             tableView.reloadData()
 
-            if type == .conversation, isScrolledToBottom {
-                scrollToBottom(tableView, animated: false)
-            }
+            maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: shouldMaintainBottomAnchor)
             if !chatParams.isScrollEnabled {
                 DispatchQueue.main.async {
                     tableContentHeight = tableView.contentSize.height
@@ -210,13 +235,22 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             return
         }
 
-        if let lastSection = sections.last, let paginationHandler = chatParams.paginationHandler {
-            coordinator.paginationTargetIndexPath = IndexPath(row: lastSection.rows.count - 1 - paginationHandler.offset, section: sections.count - 1)
+        if let lastSection = targetSections.last, let paginationHandler = chatParams.paginationHandler {
+            coordinator.paginationTargetIndexPath = IndexPath(
+                row: lastSection.rows.count - 1 - paginationHandler.offset,
+                section: targetSections.count - 1
+            )
         }
 
         let prevSections = coordinator.sections
-        let splitInfo = await performSplitInBackground(prevSections, sections)
-        await applyUpdatesToTable(tableView, splitInfo: splitInfo, animated: animated) {
+        let splitInfo = await performSplitInBackground(prevSections, targetSections)
+        await applyUpdatesToTable(
+            tableView,
+            splitInfo: splitInfo,
+            shouldMaintainBottomAnchor: shouldMaintainBottomAnchor,
+            targetSections: targetSections,
+            animated: animated
+        ) {
             coordinator.sections = $0
         }
     }
@@ -231,22 +265,35 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     }
 
     @MainActor
-    private func applyUpdatesToTable(_ tableView: UITableView, splitInfo: SplitInfo, animated: Bool, updateContextClosure: ([MessagesSection])->()) async {
+    private func applyUpdatesToTable(
+        _ tableView: UITableView,
+        splitInfo: SplitInfo,
+        shouldMaintainBottomAnchor: Bool,
+        targetSections: [MessagesSection],
+        animated: Bool,
+        updateContextClosure: ([MessagesSection])->()
+    ) async {
         if shouldFallbackToFullReload(splitInfo: splitInfo) {
-            updateContextClosure(sections)
+            updateContextClosure(targetSections)
             UIView.performWithoutAnimation {
                 tableView.reloadData()
                 tableView.layoutIfNeeded()
             }
 
-            if type == .conversation, isScrolledToBottom {
-                scrollToBottom(tableView, animated: false)
-            }
+            maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: shouldMaintainBottomAnchor)
             if !chatParams.isScrollEnabled {
                 tableContentHeight = tableView.contentSize.height
             }
             return
         }
+
+        let shouldDeferEditsUntilAfterInsert =
+            !splitInfo.insertOperations.isEmpty
+            && (isScrolledToBottom || isScrolledToTop)
+        let deferredEditRowIDs =
+            shouldDeferEditsUntilAfterInsert
+            ? rowIDs(for: splitInfo.editOperations, in: splitInfo.appliedDeletesSwapsAndEdits)
+            : []
 
         await performBatchTableUpdates(tableView) {
             updateContextClosure(splitInfo.appliedDeletes)
@@ -262,17 +309,19 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             }
         }
 
-        UIView.setAnimationsEnabled(false)
-        await performBatchTableUpdates(tableView) {
-            updateContextClosure(splitInfo.appliedDeletesSwapsAndEdits)
+        if !shouldDeferEditsUntilAfterInsert {
+            UIView.setAnimationsEnabled(false)
+            await performBatchTableUpdates(tableView) {
+                updateContextClosure(splitInfo.appliedDeletesSwapsAndEdits)
 
-            for operation in splitInfo.editOperations {
-                applyOperation(operation, tableView: tableView)
+                for operation in splitInfo.editOperations {
+                    applyOperation(operation, tableView: tableView)
+                }
             }
+            UIView.setAnimationsEnabled(true)
         }
-        UIView.setAnimationsEnabled(true)
 
-        updateContextClosure(sections)
+        updateContextClosure(targetSections)
 
         if animated, isScrolledToBottom || isScrolledToTop {
             await performBatchTableUpdates(tableView) {
@@ -288,9 +337,16 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             UIView.setAnimationsEnabled(true)
         }
 
-        if type == .conversation && isScrolledToBottom {
-            scrollToBottom(tableView, animated: false)
+        if shouldDeferEditsUntilAfterInsert {
+            let indexPaths = indexPaths(forRowIDs: deferredEditRowIDs, in: targetSections)
+            if !indexPaths.isEmpty {
+                UIView.setAnimationsEnabled(false)
+                tableView.reconfigureRows(at: indexPaths)
+                UIView.setAnimationsEnabled(true)
+            }
         }
+
+        maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: shouldMaintainBottomAnchor)
         if !chatParams.isScrollEnabled {
             tableContentHeight = tableView.contentSize.height
         }
@@ -305,7 +361,6 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             return true
         }
 
-        // Diff-based row inserts are only stable at the live edges in this inverted table setup.
         if !splitInfo.insertOperations.isEmpty && !(isScrolledToBottom || isScrolledToTop) {
             return true
         }
@@ -328,10 +383,10 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         case deleteSection(Int)
         case insertSection(Int)
 
-        case delete(Int, Int) // delete with animation
-        case insert(Int, Int) // insert with animation
-        case swap(Int, Int, Int) // delete first with animation, then insert it into new position with animation. do not do anything with the second for now
-        case edit(Int, Int) // reload the element without animation
+        case delete(Int, Int)
+        case insert(Int, Int)
+        case swap(Int, Int, Int)
+        case edit(Int, Int)
 
         var description: String {
             switch self {
@@ -368,6 +423,35 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             tableView.deleteRows(at: [IndexPath(row: rowFrom, section: section)], with: animation)
             tableView.insertRows(at: [IndexPath(row: rowTo, section: section)], with: animation)
         }
+    }
+
+    private func rowIDs(for operations: [Operation], in sections: [MessagesSection]) -> [String] {
+        operations.compactMap { operation in
+            guard case let .edit(section, row) = operation,
+                sections.indices.contains(section),
+                sections[section].rows.indices.contains(row)
+            else {
+                return nil
+            }
+
+            return sections[section].rows[row].id
+        }
+    }
+
+    private func indexPaths(forRowIDs rowIDs: [String], in sections: [MessagesSection]) -> [IndexPath] {
+        guard !rowIDs.isEmpty else { return [] }
+
+        var rowIDSet = Set(rowIDs)
+        var indexPaths = [IndexPath]()
+
+        for (sectionIndex, section) in sections.enumerated() {
+            for (rowIndex, row) in section.rows.enumerated() where rowIDSet.contains(row.id) {
+                indexPaths.append(IndexPath(row: rowIndex, section: sectionIndex))
+                rowIDSet.remove(row.id)
+            }
+        }
+
+        return indexPaths
     }
 
     private nonisolated func operationsSplit(oldSections: [MessagesSection], newSections: [MessagesSection]) -> SplitInfo {
@@ -495,13 +579,9 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         @Binding var isScrolledToBottom: Bool
         @Binding var isScrolledToTop: Bool
 
-        // MARK: - View builders
-
         let messageBuilder: MessageBuilderParamsClosure
         let mainHeaderBuilder: (()->AnyView)?
         let headerBuilder: ((Date)->AnyView)?
-
-        // MARK: - Data / type
 
         let type: ChatType
         var sections: [MessagesSection] {
@@ -511,17 +591,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 }
             }
         }
+        var pendingSections: [MessagesSection]
         let ids: [String]
-
-        // MARK: - Customization
 
         let chatParams: ChatCustomizationParameters
         let messageParams: MessageCustomizationParameters
         @Binding var timeViewWidth: CGFloat
         let mainBackgroundColor: Color
 
-        /// call pagination handler when this row is reached
-        /// without this there is a bug: during new cells insertion willDisplay is called one extra time for the cell which used to be the last one while it is being updated (its position in group is changed from first to middle)
         var paginationTargetIndexPath: IndexPath?
 
         private let impactGenerator = UIImpactFeedbackGenerator(style: .heavy)
@@ -531,15 +608,12 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             inputViewModel: InputViewModel,
             isScrolledToBottom: Binding<Bool>,
             isScrolledToTop: Binding<Bool>,
-
             messageBuilder: @escaping MessageBuilderParamsClosure,
             mainHeaderBuilder: (() -> AnyView)?,
             headerBuilder: ((Date) -> AnyView)?,
-
             type: ChatType,
             sections: [MessagesSection],
             ids: [String],
-
             chatParams: ChatCustomizationParameters,
             messageParams: MessageCustomizationParameters,
             timeViewWidth: Binding<CGFloat>,
@@ -549,15 +623,13 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             self.inputViewModel = inputViewModel
             self._isScrolledToBottom = isScrolledToBottom
             self._isScrolledToTop = isScrolledToTop
-
             self.messageBuilder = messageBuilder
             self.mainHeaderBuilder = mainHeaderBuilder
             self.headerBuilder = headerBuilder
-
             self.type = type
             self.sections = sections
+            self.pendingSections = sections
             self.ids = ids
-
             self.chatParams = chatParams
             self.messageParams = messageParams
             self._timeViewWidth = timeViewWidth
@@ -710,10 +782,8 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 completionHandler(true)
             }
             ca.image = item.render(type: type)
-
             let bgColor = item.background ?? mainBackgroundColor
             ca.backgroundColor = UIColor(bgColor)
-
             return ca
         }
 
@@ -759,8 +829,7 @@ actor UpdateQueue {
     var didPerformRealUpdate = false
     private var pendingContinuation: CheckedContinuation<Void, Never>?
     private var isProcessing = false
-
-    // MARK: - Transaction lifecycle
+    private var pendingWork: (@Sendable () async -> Void)?
 
     func beginTransaction() {
         didPerformRealUpdate = false
@@ -788,19 +857,20 @@ actor UpdateQueue {
         continuation.resume()
     }
 
-    // MARK: - Enqueue
+    func enqueue(_ work: @escaping @Sendable () async -> Void) async {
+        pendingWork = work
 
-    func enqueue(_ work: @escaping () async -> Void) async {
-        while isProcessing {
-            await Task.yield()
-        }
+        guard !isProcessing else { return }
 
         isProcessing = true
-        await work()
-        isProcessing = false
+        defer { isProcessing = false }
 
-        self.didPerformRealUpdate = true
-        finishBecauseRealUpdateHappened()
+        while let nextWork = pendingWork {
+            pendingWork = nil
+            await nextWork()
+            didPerformRealUpdate = true
+            finishBecauseRealUpdateHappened()
+        }
     }
 }
 
