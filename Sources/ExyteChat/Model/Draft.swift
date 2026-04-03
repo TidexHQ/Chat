@@ -3,14 +3,13 @@
 //
 
 import Foundation
-import GiphyUISDK
 import ExyteMediaPicker
 
 public struct DraftMessage: Sendable {
     public var id: String?
     public let text: String
     public let medias: [Media]
-    public let giphyMedia: GPHMedia?
+    public let giphyMedia: GiphyMedia?
     public let recording: Recording?
     public let replyMessage: ReplyMessage?
     public let createdAt: Date
@@ -18,7 +17,7 @@ public struct DraftMessage: Sendable {
     public init(id: String? = nil,
                 text: String,
                 medias: [Media],
-                giphyMedia: GPHMedia?,
+                giphyMedia: GiphyMedia?,
                 recording: Recording?,
                 replyMessage: ReplyMessage?,
                 createdAt: Date) {
@@ -31,4 +30,3 @@ public struct DraftMessage: Sendable {
         self.createdAt = createdAt
     }
 }
-
