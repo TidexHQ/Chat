@@ -1,35 +1,35 @@
 import SwiftUI
-import GiphyUISDK
 
 struct GiphyEditorView: View {
-    
-    @Binding private var selectedMedia: GPHMedia?
+    @Environment(\.dismiss) private var dismiss
     private let giphyConfig: GiphyConfiguration
     
-    init(
-        giphyConfig: GiphyConfiguration,
-        selectedMedia: Binding<GPHMedia?>
-    ) {
+    init(giphyConfig: GiphyConfiguration) {
         self.giphyConfig = giphyConfig
-        self._selectedMedia = selectedMedia
     }
     
     var body: some View {
-        ZStack {
-            GiphyPicker(
-                giphyConfig: giphyConfig,
-                selectedMedia: $selectedMedia
-            )
-            .ignoresSafeArea()
-            .presentationDetents(
-                [.fraction(giphyConfig.presentationDetents)]
-            )
-            .presentationDragIndicator(.hidden)
-            
-            if giphyConfig.showAttributionMark {
-                GiphyAttributionMarkView()
+        VStack(spacing: 12) {
+            Text("Giphy picker unavailable")
+                .font(.headline)
+
+            Text("This ExyteChat build no longer bundles the Giphy SDK.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+
+            if let giphyKey = giphyConfig.giphyKey, !giphyKey.isEmpty {
+                Text("Existing Giphy media IDs can still render in messages.")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Close") {
+                dismiss()
             }
         }
+        .padding(24)
+        .presentationDetents([.fraction(giphyConfig.presentationDetents)])
     }
-    
 }

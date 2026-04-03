@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import GiphyUISDK
 import ExyteMediaPicker
 
 public typealias MediaPickerLiveCameraStyle = LiveCameraCellStyle
@@ -72,7 +71,6 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     /// User and MessageId
     public typealias TapAvatarClosure = (User, String) -> ()
     
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatTheme) private var theme
     @Environment(\.giphyConfig) private var giphyConfig
     
@@ -151,9 +149,6 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     @State private var bottomChromeSize = CGSize.zero
     @State private var cellFrames = [String: CGRect]()
 
-    @State private var giphyConfigured = false
-    @State private var selectedMedia: GPHMedia? = nil
-    
     public init(messages: [Message],
                 chatType: ChatType = .conversation,
                 replyMode: ReplyMode = .quote,
@@ -200,34 +195,9 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                     .ignoresSafeArea()
                 }
             }
-            .onAppear() {
-                if isGiphyAvailable() {
-                    if let giphyKey = giphyConfig.giphyKey {
-                        if !giphyConfigured {
-                            giphyConfigured = true
-                            Giphy.configure(apiKey: giphyKey)
-                        }
-                    } else {
-                        print("WARNING: giphy key not provided, please pass a key using giphyConfig")
-                    }
-                }
-            }
-            .onChange(of: selectedMedia) {
-                if let giphyMedia = selectedMedia {
-                    inputViewModel.attachments.giphyMedia = giphyMedia
-                    inputViewModel.send()
-                }
-            }
             .sheet(isPresented: $inputViewModel.showGiphyPicker) {
-                if giphyConfig.giphyKey != nil {
-                    GiphyEditorView(
-                        giphyConfig: giphyConfig,
-                        selectedMedia: $selectedMedia
-                    )
+                GiphyEditorView(giphyConfig: giphyConfig)
                     .environmentObject(globalFocusState)
-                } else {
-                    Text("no giphy key found")
-                }
             }
             .fullScreenCover(isPresented: $inputViewModel.showPicker) {
                 AttachmentsEditor(
@@ -556,7 +526,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     }
     
     private func isGiphyAvailable() -> Bool {
-        availableInputs.contains(AvailableInputType.giphy)
+        GiphySupport.isBundled && availableInputs.contains(AvailableInputType.giphy)
     }
     
     private static func createLocalization() -> ChatLocalization {

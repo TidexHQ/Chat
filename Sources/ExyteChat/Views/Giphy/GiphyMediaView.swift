@@ -1,26 +1,25 @@
-import GiphyUISDK
 import SwiftUI
 
-// https://github.com/Giphy/giphy-ios-sdk/blob/main/Docs.md#gphmediaview
-struct GiphyMediaView: UIViewRepresentable {
-    
+struct GiphyMediaView: View {
     let id: String
     @Binding var aspectRatio: CGFloat
-    
-    func makeUIView(context: Context) -> GPHMediaView {
-        let view = GPHMediaView()
-        GiphyCore.shared.gifByID(id) { (response, error) in
-            if let media = response?.data {
-                DispatchQueue.main.async {
-                    view.setMedia(media)
-                    self.aspectRatio = media.aspectRatio
-                }
-            }
+
+    var body: some View {
+        CachedAsyncImage(
+            url: URL(string: "https://media.giphy.com/media/\(id)/giphy.gif"),
+            cacheKey: "giphy-\(id)"
+        ) { image in
+            image
+                .resizable()
+                .scaledToFill()
+        } placeholder: {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.06))
         }
-        return view
-    }
-    
-    func updateUIView(_ uiView: GPHMediaView, context: Context) {
-        // uiView.media = media
+        .task {
+            aspectRatio = 1
+        }
+        .clipped()
     }
 }

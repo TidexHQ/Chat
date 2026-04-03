@@ -23,10 +23,6 @@ let package = Package(
             from: "1.0.0"
         ),
         .package(
-           url: "https://github.com/Giphy/giphy-ios-sdk",
-           from: "2.2.16"
-        ),
-        .package(
             url: "https://github.com/onevcat/Kingfisher",
             from: "8.5.0"
         ),
@@ -37,7 +33,6 @@ let package = Package(
             dependencies: [
                 .product(name: "ExyteMediaPicker", package: "MediaPicker"),
                 .product(name: "ActivityIndicatorView", package: "ActivityIndicatorView"),
-                .product(name: "GiphyUISDK", package: "giphy-ios-sdk"),
                 .product(name: "Kingfisher", package: "Kingfisher")
             ],
             swiftSettings: [
