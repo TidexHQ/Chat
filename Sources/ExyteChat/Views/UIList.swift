@@ -41,6 +41,8 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     @State private var updateQueue = UpdateQueue()
     @State private var transaction = TableUpdateTransaction()
 
+    private let messageMenuLongPressDuration: TimeInterval = 0.35
+
     func makeUIView(context: Context) -> UITableView {
         let style = mainHeaderBuilder != nil || chatParams.showDateHeaders ? UITableView.Style.grouped : .plain
         let tableView = UITableView(frame: .zero, style: style)
@@ -59,6 +61,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.isScrollEnabled = chatParams.isScrollEnabled
         tableView.keyboardDismissMode = chatParams.keyboardDismissMode
         updateInsets(for: tableView)
+
+        if chatParams.showMessageMenuOnLongPress {
+            tableView.addGestureRecognizer(
+                context.coordinator.makeMessageMenuLongPressGesture(
+                    minimumPressDuration: messageMenuLongPressDuration
+                )
+            )
+        }
 
         NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
             DispatchQueue.main.async {
@@ -555,7 +565,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         )
     }
 
-    class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+    class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate {
         @ObservedObject var viewModel: ChatViewModel
         @ObservedObject var inputViewModel: InputViewModel
         @Binding var isScrolledToBottom: Bool
@@ -613,10 +623,42 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             self.mainBackgroundColor = mainBackgroundColor
         }
 
-        func numberOfSections(in tableView: UITableView) -> Int { sections.count }
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { sections[section].rows.count }
-        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? { type == .comments ? sectionHeaderView(section) : nil }
-        func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? { type == .conversation ? sectionHeaderView(section) : nil }
+        func makeMessageMenuLongPressGesture(minimumPressDuration: TimeInterval) -> UILongPressGestureRecognizer {
+            let recognizer = UILongPressGestureRecognizer(
+                target: self,
+                action: #selector(handleMessageMenuLongPress(_:))
+            )
+            recognizer.minimumPressDuration = minimumPressDuration
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            return recognizer
+        }
+
+        /// call pagination handler when this row is reached
+        /// without this there is a bug: during new cells insertion willDisplay is called one extra time for the cell which used to be the last one while it is being updated (its position in group is changed from first to middle)
+        var paginationTargetIndexPath: IndexPath?
+
+        func numberOfSections(in tableView: UITableView) -> Int {
+            sections.count
+        }
+
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            sections[section].rows.count
+        }
+
+        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+            if type == .comments {
+                return sectionHeaderView(section)
+            }
+            return nil
+        }
+
+        func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+            if type == .conversation {
+                return sectionHeaderView(section)
+            }
+            return nil
+        }
 
         func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
             if !chatParams.showDateHeaders && (section != 0 || mainHeaderBuilder == nil) { return 0 }
@@ -684,13 +726,6 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 )
                 .background(MessageMenuPreferenceViewSetter(id: row.id))
                 .rotationEffect(Angle(degrees: (type == .conversation ? 180 : 0)))
-                .applyIf(chatParams.showMessageMenuOnLongPress) {
-                    $0.simultaneousGesture(TapGesture().onEnded { })
-                        .onLongPressGesture {
-                            self.impactGenerator.impactOccurred()
-                            self.viewModel.messageMenuRow = row
-                        }
-                }
             }
             .minSize(width: 0, height: 0)
             .margins(.all, 0)
@@ -740,6 +775,28 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             chatParams.onContentOffsetChange?(scrollView.contentOffset)
             isScrolledToBottom = scrollView.contentOffset.y <= 0
             isScrolledToTop = scrollView.contentOffset.y >= scrollView.contentSize.height - scrollView.frame.height - 1
+        }
+
+        @objc
+        private func handleMessageMenuLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            guard recognizer.state == .began else { return }
+            guard let tableView = recognizer.view as? UITableView else { return }
+
+            let location = recognizer.location(in: tableView)
+            guard let indexPath = tableView.indexPathForRow(at: location) else { return }
+            guard sections.indices.contains(indexPath.section) else { return }
+            guard sections[indexPath.section].rows.indices.contains(indexPath.row) else { return }
+
+            impactGenerator.impactOccurred()
+            impactGenerator.prepare()
+            viewModel.messageMenuRow = sections[indexPath.section].rows[indexPath.row]
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
     }
 }
