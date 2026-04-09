@@ -143,6 +143,8 @@ Here `params` is a [`MessageBuilderParameters`](./Sources/ExyteChat/Views/ChatBu
 - `showContextMenuClosure` - closure to show message context menu   
 - `messageActionClosure ` - closure to pass user interaction, .reply for example   
 - `showAttachmentClosure` - you can pass an attachment to this closure to use ChatView's fullscreen media viewer    
+- `messageFrame` - optional binding you can pass to `frameGetter(_:)` on your custom bubble while the message menu is presented    
+- `messageFrame` - optional binding you can pass to `frameGetter(_:)` on your custom bubble while the message menu is presented    
 
 You may customize the input view (a text field with buttons at the bottom) like this: 
 ```swift

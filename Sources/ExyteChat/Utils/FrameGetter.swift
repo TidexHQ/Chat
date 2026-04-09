@@ -62,7 +62,7 @@ struct MaxHeightGetter: ViewModifier {
     }
 }
 
-extension View {
+public extension View {
 
     func frameGetter(_ frame: Binding<CGRect>) -> some View {
         modifier(FrameGetter(frame: frame))

@@ -15,6 +15,7 @@ import SwiftUI
 /// - closure to show message context menu
 /// - closure to pass user interaction, .reply for example
 /// - pass attachment to this closure to use ChatView's fullscreen media viewer
+/// - optional binding for capturing the custom message frame while the message menu is displayed
 public struct MessageBuilderParameters {
     public let message: Message
     public let positionInGroup: PositionInUserGroup
@@ -23,6 +24,7 @@ public struct MessageBuilderParameters {
     public let showContextMenuClosure: () -> Void
     public let messageActionClosure: (Message, DefaultMessageMenuAction) -> Void
     public let showAttachmentClosure: (Attachment) -> Void
+    public let messageFrame: Binding<CGRect>?
 
     @MainActor public func defaultMessageView() -> some View {
         DefaultMessageView(params: self)
