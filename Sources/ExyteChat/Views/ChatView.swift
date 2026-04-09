@@ -22,7 +22,6 @@ public enum ReplyMode: CaseIterable, Sendable {
 }
 
 public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction: MessageMenuAction>: View {
-
     public typealias TapAvatarClosure = (User, String) -> ()
 
     @Environment(\.colorScheme) private var colorScheme
