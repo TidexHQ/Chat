@@ -35,7 +35,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     var type: ChatType
     var sections: [MessagesSection]
     var ids: [String]
-    var didSendMessage: (DraftMessage) -> Void
+    var didSendMessage: (DraftMessage) async -> Bool
     var didUpdateAttachmentStatus: ((AttachmentUploadUpdate) -> Void)?
 
     var mainHeaderBuilder: (() -> AnyView)?
@@ -60,6 +60,8 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     @State private var timeViewSize = CGSize.zero
     @State private var bottomChromeSize = CGSize.zero
     @State private var cellFrames = [String: CGRect]()
+    @State private var scrollToBottomRequestID = 0
+    @State private var pendingScrollToBottomTask: Task<Void, Never>?
 
     public var body: some View {
         mainView
@@ -178,7 +180,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
 
                 if chatCustomizationParameters.showScrollToBottomButton, !isScrolledToBottom {
                     Button {
-                        NotificationCenter.default.post(name: .onScrollToBottom, object: nil)
+                        requestScrollToBottom()
                     } label: {
                         theme.images.scrollToBottom
                             .frame(width: 40, height: 40)
@@ -210,6 +212,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             bottomOverlayHeight: chatCustomizationParameters.isListAboveInputView ? bottomChromeSize.height : 0,
             sections: sections,
             ids: ids,
+            scrollToBottomRequestID: scrollToBottomRequestID,
             chatParams: chatCustomizationParameters,
             messageParams: messageCustomizationParameters,
             timeViewWidth: $timeViewSize.width
@@ -248,10 +251,29 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
 
             inputViewModel.didSendMessage = { value in
-                Task { @MainActor in
-                    didSendMessage(value)
+                let accepted = await didSendMessage(value)
+                if accepted, type == .conversation {
+                    scheduleScrollToBottom()
                 }
+                return accepted
             }
+        }
+        .onDisappear {
+            pendingScrollToBottomTask?.cancel()
+            pendingScrollToBottomTask = nil
+        }
+    }
+
+    private func requestScrollToBottom() {
+        scrollToBottomRequestID = scrollToBottomRequestID &+ 1
+    }
+
+    private func scheduleScrollToBottom() {
+        pendingScrollToBottomTask?.cancel()
+        pendingScrollToBottomTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            requestScrollToBottom()
         }
     }
 

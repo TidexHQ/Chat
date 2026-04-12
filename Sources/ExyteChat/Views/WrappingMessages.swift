@@ -9,17 +9,36 @@ import SwiftUI
 
 extension ChatView {
 
-    nonisolated static func mapMessages(_ messages: [Message], chatType: ChatType, replyMode: ReplyMode) -> [MessagesSection] {
-        guard messages.hasUniqueIDs() else {
-            fatalError("Messages can not have duplicate ids, please make sure every message gets a unique id")
+    nonisolated static func sanitizedMessages(_ messages: [Message]) -> [Message] {
+        guard !messages.isEmpty else { return messages }
+
+        var latestMessageByID = [String: Message]()
+        var orderedIDs = [String]()
+        orderedIDs.reserveCapacity(messages.count)
+
+        for message in messages {
+            if latestMessageByID[message.id] == nil {
+                orderedIDs.append(message.id)
+            }
+            latestMessageByID[message.id] = message
         }
+
+        if latestMessageByID.count != messages.count {
+            assertionFailure("Messages contained duplicate ids; deduplicating by id using the latest payload")
+        }
+
+        return orderedIDs.compactMap { latestMessageByID[$0] }
+    }
+
+    nonisolated static func mapMessages(_ messages: [Message], chatType: ChatType, replyMode: ReplyMode) -> [MessagesSection] {
+        let deduplicatedMessages = sanitizedMessages(messages)
 
         let result: [MessagesSection]
         switch replyMode {
         case .quote:
-            result = mapMessagesQuoteModeReplies(messages, chatType: chatType, replyMode: replyMode)
+            result = mapMessagesQuoteModeReplies(deduplicatedMessages, chatType: chatType, replyMode: replyMode)
         case .answer:
-            result = mapMessagesCommentModeReplies(messages, chatType: chatType, replyMode: replyMode)
+            result = mapMessagesCommentModeReplies(deduplicatedMessages, chatType: chatType, replyMode: replyMode)
         }
 
         return result
@@ -181,4 +200,3 @@ extension ChatView {
             .reversed()
     }
 }
-

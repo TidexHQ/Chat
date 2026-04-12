@@ -7,10 +7,6 @@
 
 import SwiftUI
 
-public extension Notification.Name {
-    static let onScrollToBottom = Notification.Name("onScrollToBottom")
-}
-
 struct UIList<MessageContent: View>: UIViewRepresentable {
 
     typealias MessageBuilderParamsClosure = ChatView<MessageContent, InputView, DefaultMessageMenuAction>.MessageBuilderParamsClosure
@@ -32,6 +28,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     let bottomOverlayHeight: CGFloat
     let sections: [MessagesSection]
     let ids: [String]
+    let scrollToBottomRequestID: Int
 
     let chatParams: ChatCustomizationParameters
     let messageParams: MessageCustomizationParameters
@@ -77,15 +74,6 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 )
             )
         }
-
-        NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
-            DispatchQueue.main.async {
-                if !context.coordinator.sections.isEmpty {
-                    scrollToBottom(tableView, animated: true)
-                }
-            }
-        }
-
         DispatchQueue.main.async {
             shouldScrollToTop = {
                 tableView.setContentOffset(CGPoint(x: 0, y: tableView.contentSize.height - tableView.frame.height), animated: false)
@@ -206,6 +194,11 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                             continuation.resume()
                         }
                     }
+                }
+
+                if context.coordinator.lastHandledScrollToBottomRequestID != scrollToBottomRequestID,
+                   context.coordinator.scrollToBottomIfPossible(tableView) {
+                    context.coordinator.lastHandledScrollToBottomRequestID = scrollToBottomRequestID
                 }
             }
         }
@@ -567,6 +560,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             type: type,
             sections: sections,
             ids: ids,
+            scrollToBottomRequestID: scrollToBottomRequestID,
             chatParams: chatParams,
             messageParams: messageParams,
             timeViewWidth: $timeViewWidth,
@@ -592,6 +586,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
         var pendingSections: [MessagesSection]
         let ids: [String]
+        var lastHandledScrollToBottomRequestID: Int
         let chatParams: ChatCustomizationParameters
         let messageParams: MessageCustomizationParameters
         @Binding var timeViewWidth: CGFloat
@@ -609,6 +604,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             type: ChatType,
             sections: [MessagesSection],
             ids: [String],
+            scrollToBottomRequestID: Int,
             chatParams: ChatCustomizationParameters,
             messageParams: MessageCustomizationParameters,
             timeViewWidth: Binding<CGFloat>,
@@ -625,6 +621,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             self.sections = sections
             self.pendingSections = sections
             self.ids = ids
+            self.lastHandledScrollToBottomRequestID = scrollToBottomRequestID
             self.chatParams = chatParams
             self.messageParams = messageParams
             self._timeViewWidth = timeViewWidth
@@ -657,6 +654,18 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         /// call pagination handler when this row is reached
         /// without this there is a bug: during new cells insertion willDisplay is called one extra time for the cell which used to be the last one while it is being updated (its position in group is changed from first to middle)
         var paginationTargetIndexPath: IndexPath?
+
+        func scrollToBottomIfPossible(_ tableView: UITableView) -> Bool {
+            guard !sections.isEmpty else { return false }
+            guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else {
+                return false
+            }
+
+            let scrollPosition: UITableView.ScrollPosition = (type == .conversation) ? .top : .bottom
+            tableView.layoutIfNeeded()
+            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: scrollPosition, animated: true)
+            return true
+        }
 
         func numberOfSections(in tableView: UITableView) -> Int {
             sections.count
