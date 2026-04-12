@@ -306,14 +306,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             ? rowIDs(for: splitInfo.editOperations, in: splitInfo.appliedDeletesSwapsAndEdits)
             : []
 
-        await performBatchTableUpdates(tableView) {
+        await performBatchTableUpdatesIfNeeded(tableView, animated: animated) {
             updateContextClosure(splitInfo.appliedDeletes)
             for operation in splitInfo.deleteOperations {
                 applyOperation(operation, tableView: tableView)
             }
         }
 
-        await performBatchTableUpdates(tableView) {
+        await performBatchTableUpdatesIfNeeded(tableView, animated: animated) {
             updateContextClosure(splitInfo.appliedDeletesSwapsAndEdits)
             for operation in splitInfo.swapOperations {
                 applyOperation(operation, tableView: tableView)
@@ -321,15 +321,12 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
 
         if !shouldDeferEditsUntilAfterInsert {
-            UIView.setAnimationsEnabled(false)
-            await performBatchTableUpdates(tableView) {
+            await performBatchTableUpdatesIfNeeded(tableView, animated: false) {
                 updateContextClosure(splitInfo.appliedDeletesSwapsAndEdits)
-
                 for operation in splitInfo.editOperations {
                     applyOperation(operation, tableView: tableView)
                 }
             }
-            UIView.setAnimationsEnabled(true)
         }
 
         updateContextClosure(targetSections)
@@ -360,6 +357,27 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         maintainBottomAnchorIfNeeded(tableView, wasPinnedToBottom: shouldMaintainBottomAnchor)
         if !chatParams.isScrollEnabled {
             tableContentHeight = tableView.contentSize.height
+        }
+    }
+
+    @MainActor
+    private func performBatchTableUpdatesIfNeeded(
+        _ tableView: UITableView,
+        animated: Bool,
+        _ closure: () -> Void
+    ) async {
+        guard animated else {
+            UIView.setAnimationsEnabled(false)
+            defer { UIView.setAnimationsEnabled(true) }
+
+            await performBatchTableUpdates(tableView) {
+                closure()
+            }
+            return
+        }
+
+        await performBatchTableUpdates(tableView) {
+            closure()
         }
     }
 
