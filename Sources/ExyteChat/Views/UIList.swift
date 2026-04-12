@@ -63,6 +63,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.keyboardDismissMode = chatParams.keyboardDismissMode
         updateInsets(for: tableView)
 
+        let dismissKeyboardTapRecognizer = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleListTapToDismissKeyboard(_:))
+        )
+        dismissKeyboardTapRecognizer.cancelsTouchesInView = false
+        dismissKeyboardTapRecognizer.delegate = context.coordinator
+        tableView.addGestureRecognizer(dismissKeyboardTapRecognizer)
+
         if chatParams.showMessageMenuOnLongPress {
             tableView.addGestureRecognizer(
                 context.coordinator.makeMessageMenuLongPressGesture(
@@ -591,7 +599,6 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         @Binding var timeViewWidth: CGFloat
         @Binding var reactionViewWidth: CGFloat
         let mainBackgroundColor: Color
-        var paginationTargetIndexPath: IndexPath?
         private let impactGenerator = UIImpactFeedbackGenerator(style: .heavy)
 
         init(
@@ -627,6 +634,17 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             self._timeViewWidth = timeViewWidth
             self._reactionViewWidth = reactionViewWidth
             self.mainBackgroundColor = mainBackgroundColor
+        }
+
+        @objc
+        func handleListTapToDismissKeyboard(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else { return }
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
         }
 
         func makeMessageMenuLongPressGesture(minimumPressDuration: TimeInterval) -> UILongPressGestureRecognizer {
