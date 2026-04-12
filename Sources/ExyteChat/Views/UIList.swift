@@ -172,7 +172,12 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
 
         let needToScroll = chatParams.externalContentOffset != nil || chatParams.scrollToMessageID != nil
-        let animateTableUpdate = transaction.animated && !needToScroll
+        let animateTableUpdate = TableUpdateAnimationPolicy.shouldAnimate(
+            transactionAnimated: transaction.animated,
+            needsExternalScroll: needToScroll,
+            previousIDs: context.coordinator.ids,
+            newIDs: ids
+        )
 
         context.coordinator.pendingSections = sections
 
@@ -181,6 +186,8 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
                 if context.coordinator.sections != sections {
                     await updateIfNeeded(coordinator: context.coordinator, tableView: tableView, animated: animateTableUpdate)
                 }
+
+                context.coordinator.ids = ids
 
                 if needToScroll {
                     await withCheckedContinuation { continuation in
@@ -585,7 +592,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             }
         }
         var pendingSections: [MessagesSection]
-        let ids: [String]
+        var ids: [String]
         var lastHandledScrollToBottomRequestID: Int
         let chatParams: ChatCustomizationParameters
         let messageParams: MessageCustomizationParameters
@@ -921,5 +928,16 @@ public final class TableUpdateTransaction {
         }
 
         await updateQueue?.waitForTransactionToFinish()
+    }
+}
+
+enum TableUpdateAnimationPolicy {
+    static func shouldAnimate(
+        transactionAnimated: Bool,
+        needsExternalScroll: Bool,
+        previousIDs: [String],
+        newIDs: [String]
+    ) -> Bool {
+        transactionAnimated && !needsExternalScroll && previousIDs != newIDs
     }
 }
