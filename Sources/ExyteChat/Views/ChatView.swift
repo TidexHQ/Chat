@@ -117,7 +117,10 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                 }
             }
             .background {
-                if let anyMessage = sections.first?.rows.first?.message, timeViewSize == .zero {
+                // Assume all time views share width, e.g. "00:00".
+                if messageCustomizationParameters.showTimeView,
+                   let anyMessage = sections.first?.rows.first?.message,
+                   timeViewSize == .zero {
                     FinalMeasuringTrickView(size: $timeViewSize, id: "uu") {
                         MessageTimeView(text: anyMessage.time, userType: anyMessage.user.type)
                     }
