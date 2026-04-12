@@ -15,6 +15,7 @@ struct ChatCustomizationParameters {
     var showDateHeaders: Bool = true
     var isScrollEnabled: Bool = true
     var showMessageMenuOnLongPress: Bool = true
+    var animateMessageUpdates: Bool = true
     var keyboardDismissMode: UIScrollView.KeyboardDismissMode = .none
     var messageMenuAnimationDuration: CGFloat = 0.3
     var contentInsets: UIEdgeInsets = .zero
