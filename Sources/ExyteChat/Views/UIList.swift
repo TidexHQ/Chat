@@ -273,7 +273,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         shouldMaintainBottomAnchor: Bool,
         targetSections: [MessagesSection],
         animated: Bool,
-        updateContextClosure: ([MessagesSection])->()
+        updateContextClosure: ([MessagesSection]) -> Void
     ) async {
         if shouldFallbackToFullReload(splitInfo: splitInfo) {
             updateContextClosure(targetSections)
@@ -363,6 +363,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             return true
         }
 
+        // Diff-based row inserts are only stable at the live edges in this inverted table setup.
         if !splitInfo.insertOperations.isEmpty && !(isScrolledToBottom || isScrolledToTop) {
             return true
         }
