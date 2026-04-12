@@ -330,18 +330,10 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
 
         updateContextClosure(targetSections)
 
-        if animated, isScrolledToBottom || isScrolledToTop {
-            await performBatchTableUpdates(tableView) {
-                for operation in splitInfo.insertOperations {
-                    applyOperation(operation, tableView: tableView)
-                }
-            }
-        } else {
-            UIView.setAnimationsEnabled(false)
+        await performBatchTableUpdatesIfNeeded(tableView, animated: animated) {
             for operation in splitInfo.insertOperations {
                 applyOperation(operation, tableView: tableView)
             }
-            UIView.setAnimationsEnabled(true)
         }
 
         if shouldDeferEditsUntilAfterInsert {
