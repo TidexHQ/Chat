@@ -74,7 +74,12 @@ public extension ChatView {
         view.chatCustomizationParameters.showMessageMenuOnLongPress = show
         return view
     }
-
+    /// Controls whether message list updates animate when rows are inserted, removed, or reordered.
+    func animateMessageUpdates(_ animate: Bool) -> ChatView {
+        var view = self
+        view.chatCustomizationParameters.animateMessageUpdates = animate
+        return view
+    }
     /// Sets the keyboard dismiss mode for the chat list
     /// - Parameter mode: The keyboard dismiss mode (.interactive, .onDrag, or .none)
     /// - Default is .none

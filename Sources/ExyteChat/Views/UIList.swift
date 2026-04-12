@@ -172,7 +172,7 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         }
 
         let needToScroll = chatParams.externalContentOffset != nil || chatParams.scrollToMessageID != nil
-        let animateTableUpdate = TableUpdateAnimationPolicy.shouldAnimate(
+        let animateTableUpdate = chatParams.animateMessageUpdates && TableUpdateAnimationPolicy.shouldAnimate(
             transactionAnimated: transaction.animated,
             needsExternalScroll: needToScroll,
             previousIDs: context.coordinator.ids,
@@ -685,10 +685,13 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else {
                 return false
             }
-
             let scrollPosition: UITableView.ScrollPosition = (type == .conversation) ? .top : .bottom
             tableView.layoutIfNeeded()
-            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: scrollPosition, animated: true)
+            tableView.scrollToRow(
+                at: IndexPath(row: 0, section: 0),
+                at: scrollPosition,
+                animated: chatParams.animateMessageUpdates
+            )
             return true
         }
 
