@@ -373,6 +373,17 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     }
 
     private func shouldFallbackToFullReload(splitInfo: SplitInfo) -> Bool {
+        // When callers explicitly disable message update animations, prefer a single reload
+        // over multiple non-animated batch phases that can still visibly reflow self-sizing rows.
+        // This is especially important for optimistic-send -> confirmed-send transitions.
+        if !chatParams.animateMessageUpdates,
+           (!splitInfo.insertOperations.isEmpty
+            || !splitInfo.deleteOperations.isEmpty
+            || !splitInfo.swapOperations.isEmpty
+            || !splitInfo.editOperations.isEmpty) {
+            return true
+        }
+
         let hasSectionOperations =
             splitInfo.deleteOperations.contains(where: isSectionOperation)
             || splitInfo.insertOperations.contains(where: isSectionOperation)
