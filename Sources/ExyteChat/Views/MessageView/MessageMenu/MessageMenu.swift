@@ -150,6 +150,16 @@ struct MessageMenu<MainButton: View, ActionEnum: MessageMenuAction>: View {
         guard let delegate = reactionHandler.delegate else { return nil }
         return delegate.reactions(for: message)
     }
+
+    var timestampText: String {
+        message.createdAt.formatted(
+            .dateTime
+                .day()
+                .month(.abbreviated)
+                .hour()
+                .minute()
+        )
+    }
     
     public var body: some View {
         ZStack(alignment: .top) {
@@ -477,6 +487,16 @@ struct MessageMenu<MainButton: View, ActionEnum: MessageMenuAction>: View {
             mainButton()
                 .frame(maxWidth: chatViewFrame.width - UIApplication.safeArea.leading - UIApplication.safeArea.trailing)
                 .offset(x: (alignment == .right) ? UIApplication.safeArea.trailing : -UIApplication.safeArea.leading)
+                .allowsHitTesting(false)
+
+            Text(timestampText)
+                .font(getFont?.smallCaps().weight(.medium) ?? .caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: alignment == .right ? .trailing : .leading)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+                .padding(.leading, leadingPadding)
+                .padding(.trailing, trailingPadding)
                 .allowsHitTesting(false)
             
             if menuIsVisible {
